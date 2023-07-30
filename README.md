@@ -1,0 +1,2 @@
+# sudoku
+Rust sudoku resolver
