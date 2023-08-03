@@ -31,7 +31,7 @@ fn main() {
         sudoku_grid.init_cell_value(cell_value, cell_i, cell_j);
     }
 
-    sudoku_grid.solve();
+    //sudoku_grid.solve();
   
 
     // Init Gui APP
@@ -63,13 +63,6 @@ impl ValueCell {
     }
 }
 
-#[derive(Clone)]
-pub struct Row {
-    i: usize,
-    values: Vec<Option<i64>>,
-    size: usize
-}
-
 #[derive(Debug, Clone)]
 pub struct SubGrid {
     pub range_i: Range<u8>,
@@ -93,6 +86,11 @@ impl SubGrid {
     }
 }
 
+pub struct ValueCellWrapper {
+    pub targer: ValueCell,
+    pub constraints: i64
+}
+
 pub struct SudokuGrid {
     pub grid: [[ValueCell; 9];9]
 }
@@ -114,53 +112,40 @@ impl SudokuGrid {
 
     pub fn solve(&mut self) {
 
-        // Get most constraints rows
-        let rows: Vec<Row> = self.get_most_constraints_rows();
+        let value_cells_wrapper: Vec<ValueCellWrapper> = self.get_most_constraints_value_cells();
 
-        for row in rows.iter() {
-
-            let row_index: usize = row.i;
-
-            //println!("row : {}", row_index);
-
-            for j in 0..9 {
+        'outer:
+        for value_cell_wrapper in value_cells_wrapper.iter() {
 
                 let grid: [[ValueCell; 9];9] = self.grid.clone();
+                let i = value_cell_wrapper.targer.i;
+                let j = value_cell_wrapper.targer.j;
                 
-                let row_cell_mut: &mut ValueCell = &mut self.grid[row_index as usize][j as usize];
+                let row_cell_mut: &mut ValueCell = &mut self.grid[i as usize][j as usize];
 
                 if row_cell_mut.value.is_none() {
 
                     println!("row_value_cell i: {}, j: {}", row_cell_mut.i, row_cell_mut.j);
                     // Get sub grid values
                     let sub_grid: SubGrid = SudokuGrid::get_sub_grid_for_value_cell(grid, &row_cell_mut);
-                    let mut log: bool = false;
-                    if sub_grid.range_i.start == 0 && sub_grid.range_j.start == 3 {
-                        log = true;
-                    }
 
-                    if log {
-                        println!("sub_grid values : {:?}", sub_grid.data.clone());
-                    }
+                    println!("sub_grid values : {:?}", sub_grid.data.clone());
 
                     // Get cols values
                     let col_values: Vec<i64> = SudokuGrid::get_values_of_col(grid, j as usize);
                     
-                    if log {
-                        println!("col_values : {:?}", col_values.clone());
-                    }
+                    println!("col_values : {:?}", col_values.clone());
+                    
 
                     // Get rows values
-                    let row_values: Vec<i64> = SudokuGrid::get_values_of_row(grid, row_index as usize);
-                    if log {
-                        println!("row_values : {:?}", row_values.clone());
-                    }
+                    let row_values: Vec<i64> = SudokuGrid::get_values_of_row(grid, i as usize);
+                    
+                    println!("row_values : {:?}", row_values.clone());
 
                     // Check missing values restricted to subgrid values
                     let sub_grid_missing_values = sub_grid.get_missing_values();
-                    if log {
-                        println!("sub_grid_missing_values : {:?}", sub_grid_missing_values.clone());
-                    }
+                    
+                    println!("sub_grid_missing_values : {:?}", sub_grid_missing_values.clone());
 
                     // Filter sub grid missing values by col values
                     let mut possible_values: Vec<i64> = sub_grid_missing_values.iter()
@@ -174,19 +159,17 @@ impl SudokuGrid {
                                                         .cloned()
                                                         .collect();
                     
+                    println!("possibles_values : {:?}", possible_values.clone());
 
-                    if log {
-                        println!("possibles_values : {:?}", possible_values.clone());
-                    }
                     // Check num possibilities
                     if possible_values.len() == 1 && row_cell_mut.initial == false {
                         let val = possible_values[0];
-                        if log {
-                            println!("set value : {}", val);
-                        }
+                        
+                        println!("set value : {}", val);
+                        
                         row_cell_mut.value = Some(val);
+                        break 'outer;
                     }
-                }
             }
         }
 
@@ -194,20 +177,29 @@ impl SudokuGrid {
 
     }
 
-    fn get_most_constraints_rows(&self) -> Vec<Row> {
+    fn get_most_constraints_value_cells(&self) -> Vec<ValueCellWrapper>{
 
-        let result: &mut Vec<Row> = &mut Vec::new();
+        let mut results: Vec<ValueCellWrapper> = Vec::new();
 
-        for i in 0..self.grid.len() {
-            
-            let row_values: Vec<Option<i64>> = self.grid[i].iter().filter(|&v| v.value.is_some()).map(|&v| v.value).collect();
-            let size: usize = row_values.len();
-            result.push(Row{i, values: row_values, size: size });
+        for i in self.grid.iter() {
+
+            for j in i.iter() {
+                
+                let value_cell = j.clone();
+
+                if value_cell.value.is_none() {
+
+                    let col_const: Vec<i64> = SudokuGrid::get_values_of_col(self.grid, value_cell.j as usize);
+                    let row_const: Vec<i64> = SudokuGrid::get_values_of_row(self.grid, value_cell.i as usize);
+
+                    results.push(ValueCellWrapper { targer: value_cell, constraints: (col_const.len() + row_const.len()) as i64 });
+                }
+            }
         }
 
-        result.sort_by(|a, b| b.size.cmp(&a.size));
+        results.sort_by(|a,b| b.constraints.cmp(&a.constraints));
 
-        result.to_vec()
+        results
     }
 
     fn get_values_of_col(grid: [[ValueCell; 9];9], col_index: usize) -> Vec<i64> {
@@ -301,16 +293,16 @@ impl SudokuGrid {
 
         let first: Range<u8> = 0..2;
         let second: Range<u8> = 3..5;
-        let fird: Range<u8> = 6..8;
+        let third: Range<u8> = 6..8;
         
         let mut resolved_range: Range<u8> = first.clone();
 
-        if first.contains(&index) {
+        if index >= 0 && index <= 2 {
             resolved_range = first;
-        } else if second.contains(&index) {
-            resolved_range = second;
-        } else if fird.contains(&index) {
-            resolved_range = fird;
+        } else if index >= 3 && index <= 5 {
+            resolved_range = second.clone();
+        } else if index >= 6 && index <= 8 {
+            resolved_range = third.clone();
         }
 
         resolved_range
@@ -321,14 +313,17 @@ impl SudokuGrid {
 impl eframe::App for SudokuGrid {
     
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-
-        //self.solve();
         
         egui::CentralPanel::default().show(ctx, |ui| {
                 
             ui.heading("Rust Sudoku Resolver");
-            let mut x_offset: f32 = 0.0;
-            let mut y_offset: f32 = 0.0;
+            
+            if ui.add(egui::Button::new("Next iteration")).clicked() {
+                self.solve();
+            }
+
+            let mut x_offset: f32 = 00.0;
+            let mut y_offset: f32 = 50.0;
             let border: [usize; 2] = [3,6];
 
             for i in 0..self.grid.len() {
@@ -511,4 +506,56 @@ fn init_grid() -> [[ValueCell; 9]; 9] {
     ];
 
     grid
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_resolve_sub_grid_0() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(0), 0..2);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_1() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(1), 0..2);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_2() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(2), 0..2);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_3() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(3), 3..5);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_4() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(4), 3..5);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_5() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(5), 3..5);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_6() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(6), 6..8);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_7() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(7), 6..8);
+    }
+
+    #[test]
+    fn test_resolve_sub_grid_8() {
+        assert_eq!(SudokuGrid::resolve_sub_grid(8), 6..8);
+    }
+
 }
